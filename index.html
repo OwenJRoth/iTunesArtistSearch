@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+  <title>Artist Search 493</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Custom Style -->
+  <link rel="stylesheet" type="text/css" href="index.css">
+  <!-- Vue -->
+  <script src="https://unpkg.com/vue@3"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.0/axios.min.js"></script>
+</head>
+
+<body>
+  <div id="app" class="d-flex flex-row">
+    <!-- Side Bar -->
+    <div class="d-flex flex-column flex-shrink-0 p-3 bg-body-tertiary side-bar sticky-top">
+      <!-- Title -->
+      <div class="d-flex align-items-center mb-3 mb-md-0 me-md-auto">
+        <span class="fs-2 fw-bold">Artist Search 493</span>
+      </div>
+      <hr>
+      <!-- Search Bar -->
+      <div class="input-group mb-3" id="search-bar">
+        <div class="input-group-prepend">
+          <span class="input-group-text px-2"><i class="fas fa-search"></i></span>
+        </div>
+        <div class="dropdown w-84" ref="searchBar">
+          <input 
+            v-model="searchQuery" 
+            @keyup.enter="searchArtists"
+            @click="onInputClick"
+            type="text" 
+            class="form-control px-2" 
+            placeholder="type artist name and enter" />
+          <ul v-show="showSearchHistory" class="list-group position-absolute w-100 z-3 bg-white border shadow-sm">
+            <li class="list-group-item d-flex justify-content-between align-items-center"
+                v-for="(item, index) in topFiveHistory" 
+                :key="index"
+                @click.stop="clickHistoryItem(item)"
+                @mouseover="hovered = index" 
+                @mouseleave="hovered = null">
+              <span>{{ item }}</span>
+              <i v-if="hovered === index" 
+                 class="fas fa-times text-danger"
+                 @click.stop="deleteHistory(index)"></i>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <!-- Media Type Filter -->
+      <div class="mb-3">
+        <label class="form-label">Media Type:</label>
+        <select v-model="mediaType" class="form-select">
+          <option value="all">All</option>
+          <option value="music">Music</option>
+          <option value="movie">Movies</option>
+          <option value="podcast">Podcasts</option>
+          <option value="audiobook">Audiobooks</option>
+        </select>
+      </div>
+      <!-- Favorites -->
+      <div id="favorites" class="mb-1">
+        <button class="btn btn-toggle d-inline-flex align-items-center rounded border-0 collapsed gap-1 m-2"
+          data-bs-toggle="collapse" data-bs-target="#favorite-collapse" aria-expanded="true">
+          <i class="fas fa-heart"></i>
+          Favorites
+        </button>
+        <div class="collapse show" id="favorite-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1">
+            <li v-for="(fav, index) in favorites" :key="index" class="favorite-item" :class="{ 'playing': isCurrentTrack(fav) && isPlaying }">
+              <div class="d-flex align-items-center mb-2">
+                <div class="favorite-img-container me-2">
+                  <img :src="fav.artworkUrl100 || './assets/default-artwork.png'" 
+                       class="rounded" 
+                       @error="handleImageError">
+                  <button class="favorite-play-btn" @click="handleFavoritePlayback(fav)">
+                    <i :class="isCurrentTrack(fav) && isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                  </button>
+                </div>
+                <div class="d-inline-flex flex-column one-favorite">
+                  <div class="scrolling-text">
+                    {{ fav.trackName || fav.collectionName }} - {{ fav.artistName }}
+                  </div>
+                  <button @click="removeFavorite(index)" class="btn btn-sm btn-danger">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <!-- Main Page -->
+    <div class="flex-fill">
+      <!-- Top Bar -->
+      <nav class="navbar navbar-default sticky-top bg-light">
+        <div class="container">
+          <!-- Music Controls -->
+          <div id="music-controls">
+            <button @click="shuffle" :disabled="!currentTrack">
+              <i class="fas fa-random"></i>
+            </button>
+            <button @click="prevTrack" :disabled="!currentTrack">
+              <i class="fas fa-step-backward"></i>
+            </button>
+            <button @click="togglePlay" :disabled="!currentTrack">
+              <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+            </button>
+            <button @click="nextTrack" :disabled="!currentTrack">
+              <i class="fas fa-step-forward"></i>
+            </button>
+            <button @click="toggleRepeat" :disabled="!currentTrack">
+              <i :class="isRepeatOn ? 'fas fa-redo text-primary' : 'fas fa-redo'"></i>
+            </button>
+          </div>
+          <!-- Currently Playing Track -->
+          <div class="p-3 m-1" v-if="currentTrack">
+            <div class="d-flex align-items-center">
+              <img :src="currentTrack.artworkUrl100" class="me-3" style="width: 40px; height: 40px;">
+              <div>
+                <div class="fw-bold">{{ currentTrack.trackName }}</div>
+                <div class="text-muted">{{ currentTrack.artistName }}</div>
+              </div>
+            </div>
+            <div class="progress mt-2">
+              <div class="progress-bar" role="progressbar" :style="{ width: progress + '%' }"></div>
+            </div>
+          </div>
+          <!-- Volume Controls -->
+          <div id="sound" class="d-flex flex-row align-items-center gap-1">
+            <i class="fas fa-volume-down"></i>
+            <input type="range" min="0" max="100" v-model="volume" @input="changeVolume">
+            <i class="fas fa-volume-up"></i>
+          </div>
+        </div>
+      </nav>
+      <!-- Search Results -->
+      <div class="container">
+        <div class="row mb-3">
+          <div class="col-12">
+            <h4>Search Result (Total {{ filteredResults.length }} Found.)</h4>
+            
+            <!-- No results message -->
+            <div v-if="filteredResults.length === 0 && !isLoading && searchQuery" class="alert alert-info">
+              No results found for "{{ searchQuery }}". Try a different search term.
+            </div>
+            
+            <!-- Sort and filter options (only show when results exist) -->
+            <div v-if="filteredResults.length > 0">
+              <div class="d-flex align-items-center mb-2">
+                <span class="me-2">Sort list of results by:</span>
+                <div class="dropdown">
+                  <button class="btn btn-sm dropdown-toggle" type="button" 
+                          data-bs-toggle="dropdown" aria-expanded="false"
+                          :class="{'btn-outline-secondary': sortOption === 'original', 'btn-primary': sortOption !== 'original'}">
+                    {{ sortOption === 'original' ? 'Sort List of Results By:' : 
+                       sortOption === 'collection' ? 'Collection Name' : 'Price' }}
+                  </button>
+                  <ul class="dropdown-menu">
+                    <li>
+                      <a class="dropdown-item" href="#" 
+                         :class="{ 'active': sortOption === 'original' }"
+                         @click="setSortOption('original')">Reset to original</a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item" href="#" 
+                         :class="{ 'active': sortOption === 'collection' }"
+                         @click="setSortOption('collection')">Collection Name</a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item" href="#" 
+                         :class="{ 'active': sortOption === 'price' }"
+                         @click="setSortOption('price')">Price</a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              
+              <!-- Genre filters -->
+              <div class="mb-3" v-if="availableGenres.size > 0">
+                <div class="d-flex flex-wrap gap-2">
+                  <button @click="toggleGenre('all')" 
+                          class="btn btn-sm" 
+                          :class="{'btn-primary': activeGenres.has('all'), 'btn-outline-primary': !activeGenres.has('all')}">
+                    ALL
+                  </button>
+                  <button v-for="genre in availableGenres" 
+                          :key="genre" 
+                          @click="toggleGenre(genre)"
+                          class="btn btn-sm" 
+                          :class="{'btn-success': activeGenres.has(genre), 'btn-outline-success': !activeGenres.has(genre)}">
+                    {{ genre }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <!-- Loading State -->
+          <div v-if="isLoading" class="col-12 text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Searching iTunes...</p>
+          </div>
+          
+          <!-- Empty State -->
+          <div v-else-if="filteredResults.length === 0 && searchQuery" class="col-12 text-center my-5">
+            <i class="fas fa-music fa-3x text-muted mb-3"></i>
+            <h5>No results found</h5>
+            <p>Try a different search term or media type</p>
+          </div>
+          
+          <!-- Results Grid -->
+          <div v-for="(result, index) in filteredResults" :key="index" 
+               class="col-lg-6 col-md-6 col-sm-12 mb-4">
+            <div class="card h-100" :class="{ 'currently-playing': isCurrentTrack(result) }">
+              <div class="row g-0">
+                <!-- Image Column -->
+                <div class="col-md-4">
+                  <img :src="result.artworkUrl100 || './assets/default-artwork.png'" 
+                       class="img-fluid rounded-start h-100" 
+                       :alt="result.trackName || result.collectionName"
+                       @error="handleImageError">
+                </div>
+                
+                <!-- Info Column -->
+                <div class="col-md-8">
+                  <div class="card-body">
+                    <h5 class="card-title">{{ result.trackName || result.collectionName }}</h5>
+                    
+                    <ul class="nav nav-tabs mb-3">
+                      <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" 
+                                :data-bs-target="'#desc-' + result.trackId" type="button">
+                          Description
+                        </button>
+                      </li>
+                      <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" 
+                                :data-bs-target="'#info-' + result.trackId" type="button">
+                          Track Info
+                        </button>
+                      </li>
+                    </ul>
+                    
+                    <div class="tab-content">
+                      <div class="tab-pane fade show active" :id="'desc-' + result.trackId">
+                        <div class="track-info">
+                          <div class="info-row">
+                            <span class="info-label">Artist:</span>
+                            <span class="info-value">{{ result.artistName }}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Track:</span>
+                            <span class="info-value">{{ result.trackName }}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Collection:</span>
+                            <span class="info-value">{{ result.collectionName || 'No information provided' }}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Price:</span>
+                            <span class="info-value">
+                              {{ result.trackPrice ? '$' + result.trackPrice.toFixed(2) : 'Not available' }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div class="tab-pane fade" :id="'info-' + result.trackId">
+                        <div class="track-info">
+                          <div class="info-row">
+                            <span class="info-label">Track ID:</span>
+                            <span class="info-value">{{ result.trackId }}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Country:</span>
+                            <span class="info-value">{{ result.country }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div class="card-footer bg-transparent px-0 pb-0">
+                      <button @click="handleCardPlayback(result)" 
+                              class="btn btn-sm btn-outline-primary me-2"
+                              :disabled="!result.previewUrl">
+                        <i :class="isCurrentTrack(result) && isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                        {{ isCurrentTrack(result) && isPlaying ? 'Pause' : 'Play' }}
+                      </button>
+                      <button @click="toggleFavorite(result)" class="btn btn-sm" 
+                              :class="{ 'btn-danger': isFavorite(result), 'btn-outline-secondary': !isFavorite(result) }">
+                        <i class="fas fa-heart"></i> Favorite
+                      </button>
+                      <a v-if="result.trackViewUrl" :href="result.trackViewUrl" target="_blank" 
+                         class="btn btn-sm btn-outline-info ms-2">
+                        <i class="fas fa-external-link-alt"></i> iTunes
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
